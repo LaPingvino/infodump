@@ -1,16 +1,21 @@
 package message
 
 import (
-	"context"
+	"bytes"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math/bits"
 
 	ipfs "github.com/ipfs/go-ipfs-api"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
+
+var IPFSGateway = "http://localhost:5001" // IPFS Gateway used to connect to the IPFS daemon
+
+// Set up an IPFS instance based on the IPFSGateway
+func InitIPFS() *ipfs.Shell {
+	return ipfs.NewShell(IPFSGateway)
+}
 
 // Messages on Infodump use a "stamp" using the hashcash algorithm to prevent spam and enable storing messages by importance
 // The Message type contains the message itself and a nonce that is used to verify the stamp
@@ -77,81 +82,40 @@ func New(msg string, n int) *Message {
 	return &m
 }
 
-// Datatype Messages that contains a slice of message.Message that is to be stored on IPFS as JSON
-type Messages struct {
-	Messages []message.Message `json:"messages"`
+// Map Messages maps the stamp of the message to the message itself
+type Messages map[string]*Message
+
+// Add a message to the Messages map
+func (m *Messages) Add(msg *Message) {
+	(*m)[msg.Stamp()] = msg
 }
 
-// JSON encodes the Messages struct into a JSON string
-func (m *Messages) JSON() string {
-	json, _ := json.Marshal(m)
-	return string(json)
+// Remove a message from the Messages map by stamp
+func (m *Messages) Remove(stamp string) {
+	delete(*m, stamp)
 }
 
-// Push the JSON string to IPFS and return the hash
-func (m *Messages) Push(ipfs *ipfs.IpfsApi) (string, error) {
-	hash, err := ipfs.BlockPut(m.JSON())
-	return hash, err
+// Return a JSON representation of the Messages map
+func (m *Messages) JSON() ([]byte, error) {
+	return json.Marshal(m)
 }
 
-// Read the JSON string from IPFS and return the Messages struct
-func (m *Messages) Read(ipfs *ipfs.IpfsApi, hash string) error {
-	json, err := ipfs.BlockGet(hash)
+// Add the messages as a JSON object to IPFS
+func (m *Messages) AddToIPFS() (string, error) {
+	json, err := m.JSON()
 	if err != nil {
-		return err
+		return "", err
 	}
-	err = json.Unmarshal([]byte(json), &m)
-	return err
+	return AddJSONToIPFS(json)
 }
 
-// Save the Messages struct to the database
-func (m *Messages) Save(db *sql.DB) error {
-	stmt, err := db.Prepare("INSERT INTO messages (hash) VALUES (?)")
+func AddJSONToIPFS(json []byte) (string, error) {
+	// Create an IPFS instance based on the IPFSGateway
+	myIPFS := ipfs.NewShell(IPFSGateway)
+	// Turn the JSON into a DAG node and return the CID
+	cid, err := myIPFS.Add(bytes.NewReader(json))
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = stmt.Exec(m.JSON())
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// Push the Messages struct to IPFS and send the hash to the PubSub topic
-func (m *Messages) Publish(ipfs *ipfs.IpfsApi, ps *pubsub.PubSub, topic string) error {
-	hash, err := m.Push(ipfs)
-	if err != nil {
-		return err
-	}
-	err = ps.Publish(topic, []byte(hash))
-	return err
-}
-
-// ListenAndSave takes an IPFS instance, a PubSub instance, a database and a topic
-// Listen on the PubSub topic, look up the hash and read the Messages struct
-// On first receipt, save the Messages struct to the database
-func ListenAndSave(ipfs *ipfs.IpfsApi, ps *pubsub.PubSub, db *sql.DB, topic string) error {
-	// Subscribe to the topic
-	sub, err := ps.Subscribe(topic)
-	if err != nil {
-		return err
-	}
-	// Listen for messages on the topic
-	for {
-		msg, err := sub.Next(context.Background())
-		if err != nil {
-			return err
-		}
-		// Read the Messages struct from IPFS
-		m := Messages{}
-		err = m.Read(ipfs, string(msg.Data))
-		if err != nil {
-			return err
-		}
-		// Save the Messages struct to the database
-		err = m.Save(db)
-		if err != nil {
-			return err
-		}
-	}
+	return cid, nil
 }
