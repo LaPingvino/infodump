@@ -13,6 +13,6 @@ func TestMessageTimeout(t *testing.T) {
 	time.AfterFunc(10*time.Second, func() {
 		t.Error("Test timed out")
 	})
-	_ = message.New("Hello World!", 16)
+	_ = message.New("Hello World!", 16, time.Now().Unix())
 	// Success
 }
