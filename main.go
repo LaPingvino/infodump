@@ -35,7 +35,6 @@ type MenuElements struct {
 // Menu presents a menu to the user
 func Menu(menu []MenuElements) {
 	// Present the user with a menu
-	fmt.Println("Welcome to Infodump")
 	for i, e := range menu {
 		fmt.Println(i+1, e.Description)
 	}
@@ -50,6 +49,8 @@ func Menu(menu []MenuElements) {
 }
 
 func main() {
+	fmt.Println("Welcome to Infodump")
+
 	// Set message IPFS client to use the local IPFS node
 	message.IPFSGateway = "http://localhost:5001"
 
@@ -76,6 +77,14 @@ func main() {
 	// configure the followed tags
 	// quit the program
 	for {
+		// Check if the database is set, if so, show the followed tags
+		if DB != nil {
+			fmt.Println("Following tags:")
+			for _, tag := range GetFollowedTags(DB) {
+				fmt.Print(tag, " ")
+				fmt.Println()
+			}
+		}
 		// Present the user with a menu
 		Menu([]MenuElements{
 			{"Start OLN Listener", StartOLNListener},
@@ -325,15 +334,31 @@ func SetDatabase() {
 
 func ConfigureFollowedTags() {
 	db := GetDatabase()
-	fmt.Println("Enter the tags you want to follow, separated by spaces: ")
-	tags := Readline()
+	fmt.Println("At the moment you follow the following tags:")
+	// Get the tags that the user is following
+	tags := GetFollowedTags(db)
+	// Show the tags
+	for _, tag := range tags {
+		fmt.Print(tag, " ")
+	}
+	fmt.Println()
+	fmt.Println("Enter the tags you want to follow, separated by spaces\nTo remove tags, prefix them with a minus sign: ")
+	newtags := Readline()
 	// Split the tags into an array and insert them into database DB
 	// using table "followed_tags"
-	tagArray := strings.Split(tags, " ")
+	tagArray := strings.Split(newtags, " ")
 	for _, tag := range tagArray {
-		_, err := db.Exec("INSERT INTO followed_tags(tag) VALUES(?)", tag)
-		if err != nil {
-			fmt.Println(err)
+		tag = strings.Trim(tag, " \n")
+		if !strings.HasPrefix(tag, "-") {
+			_, err := db.Exec("INSERT INTO followed_tags(tag) VALUES(?)", tag)
+			if err != nil {
+				fmt.Println(err)
+			}
+		} else {
+			_, err := db.Exec("DELETE FROM followed_tags WHERE tag=?", tag[1:])
+			if err != nil {
+				fmt.Println(err)
+			}
 		}
 	}
 }
