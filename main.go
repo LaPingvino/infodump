@@ -102,9 +102,47 @@ func GetDatabase() *sql.DB {
 	return DB
 }
 
+func GetMessagesFromDatabase(db *sql.DB) message.Messages {
+	// Get all messages from the database
+	rows, err := db.Query("SELECT hash, message, nonce, timestamp FROM messages")
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer rows.Close()
+	// Create a new Messages object
+	msgs := message.Messages{}
+	// Loop through all messages
+	fmt.Println("Getting messages from database...")
+	for rows.Next() {
+		var hash, msg string
+		var nonce int
+		var timestamp int64
+		// Get the values from the database
+		err := rows.Scan(&hash, &msg, &nonce, &timestamp)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println("Got message from database:", hash)
+
+		// Create a new message object
+		m := message.Message{
+			Message:   msg,
+			Nonce:     nonce,
+			Timestamp: timestamp,
+		}
+		// Add the message to the Messages object
+		fmt.Println("Adding message to Messages object...")
+		msgs[hash] = &m
+	}
+	return msgs
+}
+
 func ReadMessages() {
-	// TODO: Read messages from PubSub topic "OLN"
-	fmt.Println("Reading messages...")
+	// Show all messages in LocalMessages
+	fmt.Println("Local messages:")
+	for _, m := range LocalMessages {
+		fmt.Println(m)
+	}
 }
 
 func WriteMessage() {
@@ -135,31 +173,9 @@ func SyncMessages() {
 	}
 
 	fmt.Println("Now loading messages from database...")
-	// Get the messages from the database in a new Messages object
-	var messages = message.Messages{}
-	rows, err := db.Query("SELECT * FROM messages")
-	if err != nil {
-		fmt.Println(err)
-	}
-	for rows.Next() {
-		var hash, msg string
-		var nonce int
-		var timestamp int64
-		fmt.Println("Reading message...")
-		err := rows.Scan(&hash, &msg, &nonce, &timestamp)
-		if err != nil {
-			fmt.Println(err)
-		}
-		fmt.Println("Message", hash, "loaded")
+	// Get the messages from the database
+	messages := GetMessagesFromDatabase(db)
 
-		m := message.Message{
-			Message:   msg,
-			Nonce:     nonce,
-			Timestamp: timestamp,
-		}
-
-		messages[hash] = &m
-	}
 	fmt.Println("Messages loaded from database")
 	// Add the messages to the IPFS network
 	cid, err := messages.AddToIPFS()
@@ -168,6 +184,9 @@ func SyncMessages() {
 	} else {
 		fmt.Println("Messages synced to IPFS: ", cid)
 	}
+
+	// Set LocalMessages to the messages that are in the database
+	LocalMessages = messages
 }
 
 func TestIPFSGateway(gateway string) error {

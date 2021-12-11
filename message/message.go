@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/bits"
+	"time"
 
 	ipfs "github.com/ipfs/go-ipfs-api"
 )
@@ -23,6 +24,11 @@ type Message struct {
 	Message   string
 	Timestamp int64
 	Nonce     int
+}
+
+// String method for Message: "Message *hash* sent at *human readable timestamp* with nonce *nonce*:\n*message*"
+func (m *Message) String() string {
+	return fmt.Sprintf("Message %x sent at %s with nonce %d:\n%s", m.Hash(), time.Unix(m.Timestamp, 0).Format(time.RFC3339), m.Nonce, m.Message)
 }
 
 // Proof of Work: Find the nonce for a message by hashing the message and checking for at least n initial zeroes in the binary representation of the resulting hash
