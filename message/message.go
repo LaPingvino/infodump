@@ -20,8 +20,9 @@ func InitIPFS() *ipfs.Shell {
 // Messages on Infodump use a "stamp" using the hashcash algorithm to prevent spam and enable storing messages by importance
 // The Message type contains the message itself and a nonce that is used to verify the stamp
 type Message struct {
-	Message string
-	Nonce   int
+	Message   string
+	Timestamp int64
+	Nonce     int
 }
 
 // Proof of Work: Find the nonce for a message by hashing the message and checking for at least n initial zeroes in the binary representation of the resulting hash
@@ -43,9 +44,9 @@ func (msg *Message) ProofOfWork(n int) {
 	*msg = m
 }
 
-// Get the SHA256 hash of a message plus the nonce as a byte slice
+// Get the SHA256 hash of a message plus the timestamp plus the nonce as a byte slice
 func (m *Message) Hash() [32]byte {
-	hash := sha256.Sum256([]byte(fmt.Sprintf("%s%d", m.Message, m.Nonce)))
+	hash := sha256.Sum256([]byte(m.Message + fmt.Sprintf("%d", m.Timestamp) + fmt.Sprintf("%d", m.Nonce)))
 	return hash
 }
 
@@ -76,8 +77,8 @@ func (m *Message) Lead() int {
 	return CountLeadingZeroes(m.Hash())
 }
 
-func New(msg string, n int) *Message {
-	m := Message{Message: msg}
+func New(msg string, n int, timestamp int64) *Message {
+	m := Message{Message: msg, Timestamp: timestamp}
 	m.ProofOfWork(n)
 	return &m
 }
@@ -112,7 +113,7 @@ func (m *Messages) AddToIPFS() (string, error) {
 func AddJSONToIPFS(json []byte) (string, error) {
 	// Create an IPFS instance based on the IPFSGateway
 	myIPFS := ipfs.NewShell(IPFSGateway)
-	// Turn the JSON into a DAG node and return the CID
+	// Turn the JSON into a Reader and add it to IPFS
 	cid, err := myIPFS.Add(bytes.NewReader(json))
 	if err != nil {
 		return "", err
