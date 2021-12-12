@@ -18,12 +18,13 @@ import (
 var LocalMessages = message.Messages{}
 var DatabasePath = "infodump.db"
 var DB *sql.DB
+var MessageCache string
 
 // Readline reads from a buffered stdin and returns the line
 func Readline() string {
 	reader := bufio.NewReader(os.Stdin)
 	line, _ := reader.ReadString('\n')
-	return line
+	return line[:len(line)-1]
 }
 
 // MenuElements is a list of options for the menu, consisting of a description and a function
@@ -90,10 +91,8 @@ func main() {
 			{"Start OLN Listener", StartOLNListener},
 			{"Read Messages", ReadMessages},
 			{"Write Message", WriteMessage},
-			{"Sync Messages", SyncMessages},
-			{"Set IPFS Gateway", SetIPFSGateway},
-			{"Set Database", SetDatabase},
-			{"Configure Followed Tags", ConfigureFollowedTags},
+			{"Sync Messages", SyncMenu},
+			{"Settings", SettingsMenu},
 			{"Quit", func() { os.Exit(0) }},
 		})
 
@@ -101,6 +100,33 @@ func main() {
 		fmt.Println("Press enter to continue...")
 		Readline()
 	}
+}
+
+// A submenu for all settings
+func SettingsMenu() {
+	// Present the user with a menu
+	Menu([]MenuElements{
+		{"Set IPFS Gateway", SetIPFSGateway},
+		{"Set Database", SetDatabase},
+		{"Configure Followed Tags", ConfigureFollowedTags},
+		{"Back", func() {}},
+	})
+}
+
+// A menu for the several parts of Sync:
+// saving messages to the local database
+// reading messages from the local database
+// reading messages from the network
+// writing messages to the network
+func SyncMenu() {
+	// Present the user with a menu
+	Menu([]MenuElements{
+		{"Save Messages to Database", SaveMessagesToDatabase},
+		{"Read Messages from Database", ReadMessagesFromDatabase},
+		{"Read Messages from Network", ReadMessagesFromNetwork},
+		{"Write Messages to Network", WriteMessagesToNetwork},
+		{"Back", func() {}},
+	})
 }
 
 // StartOLNListener starts a PubSub listener that listens for messages from the network
@@ -124,7 +150,7 @@ func StartOLNListener() {
 	}
 	subs = append(subs, olnsub)
 	for _, tag := range followedTags {
-		tagssub, err := myIPFS.PubSubSubscribe("oln-tag-" + tag)
+		tagssub, err := myIPFS.PubSubSubscribe("oln-" + tag)
 		if err != nil {
 			fmt.Println(err)
 		} else {
@@ -197,29 +223,91 @@ func GetMessagesFromDatabase(db *sql.DB) *message.Messages {
 	return &msgs
 }
 
+// ReadMessages shows the messages in LocalMessages sorted by importance, 10 at a time
 func ReadMessages() {
-	// Show all messages in LocalMessages
-	fmt.Println("Local messages:")
-	LocalMessages.Each(func(m *message.Message) {
-		fmt.Println(m.String())
-	})
+	// Use LocalMessages to get the messages and get the sorted list of messages
+	// through the MessageList method
+	msgs := LocalMessages.MessageList()
+	// Loop through the messages and print them
+	for i, m := range msgs {
+		fmt.Println(m)
+		if i%10 == 9 {
+			fmt.Println("Press enter to continue... Type anything to stop")
+			contp := Readline()
+			if contp != "" {
+				return
+			}
+		}
+	}
 }
 
 func WriteMessage() {
 	// Get a message and an urgency from the user.
 	// The urgency is used to set the strength of the Proof of Work
-	fmt.Println("Enter a message: ")
-	m := Readline()
+	// If there is a message in the MessageCache, ask the user if they want to use it
+	// If there is no message in the MessageCache, ask the user to write a message
+	var m string
+	if MessageCache != "" {
+		fmt.Println("You wrote a message before that you didn't send yet. Do you want to use that message?")
+		fmt.Println("The message is:", MessageCache)
+		fmt.Println("Type 'yes' to use the message, or anything else to write a new message")
+		usep := Readline()
+		if usep == "yes" {
+			fmt.Println("Using message from cache")
+			m = MessageCache
+		} else {
+			fmt.Println("Writing new message")
+			m = usep
+		}
+	} else {
+		fmt.Println("Write a message:")
+		m = Readline()
+	}
 	fmt.Println("Enter an urgency (higher is stronger but takes longer to produce): ")
 	var urgency int
 	fmt.Scanln(&urgency)
-	// Create a Message object
-	msg := message.New(m, urgency, time.Now().Unix())
+	fmt.Println("How many seconds should we wait for the POW to be done? (default is 5): ")
+	var powtime int
+	fmt.Scanln(&powtime)
+	if powtime == 0 {
+		powtime = 5
+	}
+	// Create a new message object
+	msg, err := message.New(m, urgency, time.Now().Unix(), time.Duration(powtime)*time.Second)
+	if err != nil {
+		fmt.Println(err)
+		fmt.Println("Want to try again with another urgency or timeout? (y/n)")
+		contp := Readline()
+		if contp == "y" {
+			MessageCache = m
+			WriteMessage()
+		}
+		return
+	}
+	// MessageCache can be discarded after this point
+	MessageCache = ""
 	// Add the message to LocalMessages
 	LocalMessages.Add(msg)
+
+	// Ask if the user wants to write another message or save the messages to the database
+	fmt.Println("Do you want to write another message? (y/n)")
+	contp := Readline()
+	if contp == "y" {
+		WriteMessage()
+	} else {
+		fmt.Println("Do you want to save the messages to the database? (y/n)")
+		contp := Readline()
+		if contp == "y" {
+			SaveMessagesToDatabase()
+		}
+	}
 }
 
-func SyncMessages() {
+// Implementing the Sync Menu options
+// SaveMessagesToDatabase, ReadMessagesFromDatabase, ReadMessagesFromNetwork and WriteMessagesToNetwork
+
+// SaveMessagesToDatabase saves the messages in LocalMessages to the database
+func SaveMessagesToDatabase() {
 	// Update the database with the messages in LocalMessages
 	db := GetDatabase()
 	// Put the messages in the database
@@ -228,26 +316,34 @@ func SyncMessages() {
 		if err != nil {
 			fmt.Println(err)
 		} else {
-			fmt.Println("Message", m.Stamp(), "synced")
+			fmt.Println("Message", m.Stamp(), "saved to database")
 		}
 	})
+}
 
-	fmt.Println("Now loading messages from database...")
+// ReadMessagesFromDatabase reads the messages from the database and adds them to LocalMessages
+func ReadMessagesFromDatabase() {
 	// Get the messages from the database
-	messages := GetMessagesFromDatabase(db)
+	messages := GetMessagesFromDatabase(GetDatabase())
+	// Add the messages to LocalMessages
+	LocalMessages.AddMany(messages)
+}
 
-	fmt.Println("Messages loaded from database")
+// ReadMessagesFromNetwork reads the messages from the IPFS network and adds them to LocalMessages
+func ReadMessagesFromNetwork() {
+	// Get the messages from the IPFS network
+	// TODO: Implement this
+}
+
+// WriteMessagesToNetwork writes the messages in LocalMessages to the IPFS network
+func WriteMessagesToNetwork() {
 	// Add the messages to the IPFS network
-	cid, err := messages.AddToIPFS()
+	cid, err := LocalMessages.AddToIPFS()
 	if err != nil {
 		fmt.Println(err)
 	} else {
 		fmt.Println("Messages synced to IPFS: ", cid)
 	}
-
-	// Set LocalMessages to the messages that are in the database
-	LocalMessages = message.Messages{}
-	LocalMessages.AddMany(messages)
 }
 
 func TestIPFSGateway(gateway string) error {
@@ -299,7 +395,7 @@ func SetDatabase() {
 	fmt.Println("Database path: ", DatabasePath)
 	fmt.Println("Is this correct? (y/n)")
 	answer := Readline()
-	if strings.HasPrefix(answer, "n") {
+	if answer == "n" {
 		fmt.Println("Enter the database path: ")
 		DatabasePath = Readline()
 	}
@@ -313,7 +409,7 @@ func SetDatabase() {
 	if DB != nil {
 		fmt.Println("Database already set, overwrite? (y/n)")
 		answer := Readline()
-		if strings.HasPrefix(answer, "n") {
+		if answer == "n" {
 			return
 		}
 	}
@@ -321,7 +417,7 @@ func SetDatabase() {
 	if _, err := os.Stat(DatabasePath); os.IsNotExist(err) {
 		fmt.Println("Database does not exist, create? (y/n)")
 		answer := Readline()
-		if strings.HasPrefix(answer, "n") {
+		if answer == "n" {
 			return
 		}
 	}

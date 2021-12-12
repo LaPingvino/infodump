@@ -8,11 +8,11 @@ import (
 	"git.kiefte.eu/lapingvino/infodump/message"
 )
 
-// Test if the code finishes in time
+// Test if creating a proof of work of 16 leading zeros finishes in 10 seconds
 func TestMessageTimeout(t *testing.T) {
-	time.AfterFunc(10*time.Second, func() {
-		t.Error("Test timed out")
-	})
-	_ = message.New("Hello World!", 16, time.Now().Unix())
-	// Success
+	msg := message.Message{Message: "test", Timestamp: time.Now().Unix()}
+	err := msg.ProofOfWork(16, 10*time.Second)
+	if err != nil {
+		t.Error(err)
+	}
 }

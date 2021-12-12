@@ -64,11 +64,14 @@ func (m *Messages) MessageList() []*Message {
 }
 
 // Proof of Work: Find the nonce for a message by hashing the message and checking for at least n initial zeroes in the binary representation of the resulting hash
-func (msg *Message) ProofOfWork(n int) {
+// If it takes too long, return an error
+func (msg *Message) ProofOfWork(n int, timeout time.Duration) error {
 	// Create a local copy of the message and start counting
 	m := *msg
 	m.Nonce = 0
+	start := time.Now()
 	// Loop until we find a nonce that satisfies the proof of work
+	// If the nonce is not found within the timeout, return an error
 	for {
 		// Increment the nonce and hash the message
 		m.Nonce++
@@ -77,9 +80,14 @@ func (msg *Message) ProofOfWork(n int) {
 		if CountLeadingZeroes(hash) >= n {
 			break
 		}
+		// If the nonce is not found within the timeout, return an error
+		if time.Since(start) > timeout {
+			return fmt.Errorf("proof of work timed out")
+		}
 	}
 	// Set the message to the local copy
 	*msg = m
+	return nil
 }
 
 // Get the SHA256 hash of a message plus the timestamp plus the nonce as a byte slice
@@ -115,10 +123,10 @@ func (m *Message) Lead() int {
 	return CountLeadingZeroes(m.Hash())
 }
 
-func New(msg string, n int, timestamp int64) *Message {
+func New(msg string, n int, timestamp int64, timeout time.Duration) (*Message, error) {
 	m := Message{Message: msg, Timestamp: timestamp}
-	m.ProofOfWork(n)
-	return &m
+	err := m.ProofOfWork(n, timeout)
+	return &m, err
 }
 
 // Map Messages maps the stamp of the message to the message itself
