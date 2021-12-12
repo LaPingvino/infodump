@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/bits"
+	"sort"
 	"sync"
 	"time"
 
@@ -31,6 +33,34 @@ type Message struct {
 // String method for Message: "Message *hash* sent at *human readable timestamp* with nonce *nonce*:\n*message*"
 func (m *Message) String() string {
 	return fmt.Sprintf("Message %x sent at %s with nonce %d:\n%s", m.Hash(), time.Unix(m.Timestamp, 0).Format(time.RFC3339), m.Nonce, m.Message)
+}
+
+// SortNum of a Message returns a number that can be used to sort messages by importance
+// The number is calculated by taking the timestamp of the message and
+// adding an importance factor of 2^(leading zeros of hash / 8) to it
+// If the timestamp is in the future, return 0 instead so the message will be discarded unless there are almost no messages
+func (m *Message) SortNum() int64 {
+	if m.Timestamp > time.Now().Unix() {
+		return 0
+	}
+	importance := math.Pow(2, float64(CountLeadingZeroes(m.Hash()))/8)
+	return m.Timestamp + int64(importance)
+}
+
+// MessageList returns a slice of Messages sorted by importance
+// The slice is sorted by the SortNum method of the Message type
+// It can be created from a Messages map by calling the Messages.Sorted method
+func (m *Messages) MessageList() []*Message {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	var msgs []*Message
+	for _, msg := range m.msgs {
+		msgs = append(msgs, msg)
+	}
+	sort.Slice(msgs, func(i, j int) bool {
+		return msgs[i].SortNum() > msgs[j].SortNum()
+	})
+	return msgs
 }
 
 // Proof of Work: Find the nonce for a message by hashing the message and checking for at least n initial zeroes in the binary representation of the resulting hash
