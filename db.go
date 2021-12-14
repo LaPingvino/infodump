@@ -51,12 +51,12 @@ func StartOLNListener() {
 			for {
 				msg, err := sub.Next()
 				if err != nil {
-					fmt.Println(err)
+					fmt.Println("Error reading from PubSub:", err)
 					return
 				}
 				msgs, err := message.MessagesFromIPFS(string(msg.Data))
 				if err != nil {
-					fmt.Println(err)
+					fmt.Println("Error reading from IPFS:", err)
 					return
 				}
 				LocalMessages.AddMany(msgs)
