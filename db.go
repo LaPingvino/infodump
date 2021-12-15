@@ -166,3 +166,28 @@ func SetDatabase() {
 	// If not, create them
 	InitDatabase(DB)
 }
+
+func TrimDatabase() {
+	// Ask how many messages to keep
+	fmt.Println("How many messages to keep?")
+	var num int
+	fmt.Scan(&num)
+	// Get the database
+	db := GetDatabase()
+	// Get the list of messages
+	msgs := GetMessagesFromDatabase(db)
+	// Trim the list of messages
+	msgs.Trim(num)
+	// Delete all messages from the database
+	_, err := db.Exec("DELETE FROM messages")
+	if err != nil {
+		fmt.Println(err)
+	}
+	// Add the trimmed list of messages to the database
+	msgs.Each(func(m *message.Message) {
+		_, err := db.Exec("INSERT INTO messages(hash, message, nonce, timestamp) VALUES(?, ?, ?, ?)", m.Stamp(), m.Message, m.Nonce, m.Timestamp)
+		if err != nil {
+			fmt.Println(err)
+		}
+	})
+}

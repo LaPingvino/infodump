@@ -89,3 +89,12 @@ func WriteMessage() {
 		}
 	}
 }
+
+func TrimMessages() {
+	// Get the number of messages to keep from the user
+	fmt.Println("How many messages do you want to keep?")
+	var keep int
+	fmt.Scanln(&keep)
+	// Trim the messages
+	LocalMessages.Trim(keep)
+}

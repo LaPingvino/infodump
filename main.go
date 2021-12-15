@@ -83,6 +83,8 @@ func main() {
 			{"Read Messages", ReadMessages},
 			{"Write Message", WriteMessage},
 			{"Sync Messages", SyncMenu},
+			{"Trim Messages", TrimMessages},
+			{"Trim Database", TrimDatabase},
 			{"Settings", SettingsMenu},
 			{"Quit", func() { os.Exit(0) }},
 		})

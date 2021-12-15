@@ -158,6 +158,25 @@ func MessagesFromIPFS(cid string) (*Messages, error) {
 	return &messages, nil
 }
 
+// Trim the Messages map to the given number of messages based on the importance of the messages
+func (m *Messages) Trim(n int) {
+	// Create a slice of Messages sorted by importance
+	// Cannot lock the Messages map yet, Messages.MessageList() will lock it
+	msgs := m.MessageList()
+	// Now lock the Messages map and trim the map to the given number of messages
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	// If the number of messages is less than or equal to the number of messages to keep, do nothing
+	if len(msgs) <= n {
+		return
+	}
+	fmt.Println("Trimming messages")
+	// Otherwise, remove the messages after the nth message from the map
+	for i := n; i < len(msgs); i++ {
+		delete(m.msgs, msgs[i].Stamp())
+	}
+}
+
 // Add a message to the Messages map
 func (m *Messages) Add(msg *Message) {
 	m.lock.Lock()
